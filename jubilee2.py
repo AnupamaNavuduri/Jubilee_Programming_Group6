@@ -13,6 +13,7 @@ class Card:
     def __init__(self, color, number):
         self.color = color
         self.number = number
+        self.selected = False
 
     def draw(self, screen, rect, font):
         pygame.draw.rect(screen, cardColors[self.color], rect, border_radius=10)
@@ -47,6 +48,7 @@ def  main():
     background = Background()
     deck = Deck()
     hand = []
+    visibleCards = []
     font = pygame.font.Font(None, 60)
     clock = pygame.time.Clock()
 
@@ -68,12 +70,16 @@ def  main():
                         hand.append(deck.draw())
 
                     dealStart = pygame.time.get_ticks()
-
+                else:
+                    for card, rect in reversed(visibleCards):
+                        if rect.collidepoint(event.pos):
+                            card.selected = not card.selected
+                            break
         background.draw(screen)
 
         pygame.draw.rect(screen, (60,95, 155), deckRect, border_radius=10)
         pygame.draw.rect(screen, (255,255,255), deckRect, width=2, border_radius=10)
-
+        visibleCards.clear()
         if dealStart is not None:
             elapsed = pygame.time.get_ticks() - dealStart
 
@@ -91,6 +97,16 @@ def  main():
                 cardRect = pygame.Rect(x,y,75,110)
 
                 card.draw(screen, cardRect, font)
+                visibleCards.append((card, cardRect))
+
+                if card.selected:
+                    pygame.draw.rect(
+                        screen, (100, 230, 255), cardRect, width=4, border_radius=10
+                    )
+                elif cardRect.collidepoint(pygame.mouse.get_pos()):
+                    pygame.draw.rect(
+                        screen, (255, 255, 255), cardRect, width=3, border_radius=10
+                    )
 
         pygame.display.flip()
         clock.tick(60)
