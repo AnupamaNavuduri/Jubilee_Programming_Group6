@@ -1,0 +1,158 @@
+import random
+
+# --------------------------
+# Base Computer AI 基类（所有电脑玩家共用接口）
+# --------------------------
+class ComputerPlayer(Player):
+    def __init__(self, name, base_x, base_y, spacing_x, spacing_y):
+        super().__init__(name, base_x, base_y, spacing_x, spacing_y, is_human=False)
+        self.ai_type = "base"
+
+    def choose_action(self, all_players, deck):
+        """
+        Main AI decision function, must return:
+        action_type: str in ["act1", "act2", "act3", "act4", "pass"]
+        payload: dict with required parameters for that action
+        主决策函数，返回动作类型 + 动作参数
+        """
+        raise NotImplementedError("Implement choose_action in child AI class")
+
+    def execute_action(self, action_type, payload, all_players, deck):
+        #执行选中的动作
+        if action_type == "act1":
+            # Act1: draw 1 card, max once per turn
+            if self.act1_used == 0 and deck.cards and self.can_add_card():
+                self.draw_from_deck(deck, 1)
+                self.act1_used += 1
+        elif action_type == "act2":
+            # Act2: steal a card from target player, max once per turn
+            if self.act2_used == 0:
+                target = payload["target_player"]
+                if target != self and len(target.hand) > 0 and self.can_add_card():
+                    stolen_card = random.choice(target.hand)
+                    target.remove_card(stolen_card)
+                    self.hand.append(stolen_card)
+                    self.act2_used += 1
+        elif action_type == "act3":
+            # Act3: draw 2, keep 1, discard 1; max once per turn
+            if self.act3_used == 0 and len(deck.cards) >= 2 and self.can_add_card():
+                c1 = deck.draw()
+                c2 = deck.draw()
+                # AI choose which one to keep
+                keep = payload["keep_card"]
+                discard = c2 if keep == c1 else c1
+                self.hand.append(keep)
+                deck.discard_pile.append(discard)
+                self.act3_used += 1
+        elif action_type == "act4":
+            # Act4: discard single card, max twice per turn
+            if self.act4_used < 2 and len(self.hand) > 0:
+                discard_card = payload["discard_card"]
+                self.remove_card(discard_card)
+                deck.discard_pile.append(discard_card)
+                self.act4_used += 1
+        elif action_type == "pass":
+            # Pass turn, do nothing
+            pass
+
+# --------------------------
+# 基础随机AI：找出所有合法动作，随机选一个，满足assessment最低要求
+# --------------------------
+class RandomComputerPlayer(ComputerPlayer):
+    def __init__(self, name, base_x, base_y, spacing_x, spacing_y):
+        super().__init__(name, base_x, base_y, spacing_x, spacing_y)
+        self.ai_type = "random"
+
+    def get_valid_actions(self, all_players, deck):
+      
+        #扫描当前回合所有合法动作
+     
+        valid = []
+        # Act1: draw 1
+        if self.act1_used == 0 and len(deck.cards) > 0 and self.can_add_card():
+            valid.append(("act1", {}))
+
+        # Act2: steal from another player
+        if self.act2_used == 0:
+            possible_targets = [p for p in all_players if p != self and len(p.hand) > 0 and self.can_add_card()]
+            for t in possible_targets:
+                valid.append(("act2", {"target_player": t}))
+
+        # Act3: draw two keep one
+        if self.act3_used == 0 and len(deck.cards) >= 2 and self.can_add_card():
+            valid.append(("act3", {"keep_card": None}))
+
+        # Act4: discard single card
+        if self.act4_used < 2 and len(self.hand) > 0:
+            for card in self.hand:
+                valid.append(("act4", {"discard_card": card}))
+
+        # Pass is always allowed
+        valid.append(("pass", {}))
+        return valid
+
+    def choose_action(self, all_players, deck):
+        valid_actions = self.get_valid_actions(all_players, deck)
+        if not valid_actions:
+            return "pass", {}
+        # Random pick one valid action | 随机挑选一个合法动作
+        action_type, payload = random.choice(valid_actions)
+
+        # Special handling for act3: we need to pick which card to keep after drawing
+        if action_type == "act3":
+            # We will draw two inside execute, just reserve placeholder
+            payload = {"keep_card": None}
+        return action_type, payload
+
+# --------------------------
+# 贪心策略AI（高分扩展，你可以继续优化策略）
+# 策略：优先弃牌（尽快把手牌打空获胜），其次抽牌，然后偷牌，最后pass
+# --------------------------
+class GreedyComputerPlayer(ComputerPlayer):
+    def __init__(self, name, base_x, base_y, spacing_x, spacing_y):
+        super().__init__(name, base_x, base_y, spacing_x, spacing_y)
+        self.ai_type = "greedy"
+
+    def get_valid_actions(self, all_players, deck):
+        valid = []
+        if self.act1_used == 0 and len(deck.cards) > 0 and self.can_add_card():
+            valid.append(("act1", {}))
+        if self.act2_used == 0:
+            possible_targets = [p for p in all_players if p != self and len(p.hand) > 0 and self.can_add_card()]
+            for t in possible_targets:
+                valid.append(("act2", {"target_player": t}))
+        if self.act3_used == 0 and len(deck.cards) >= 2 and self.can_add_card():
+            valid.append(("act3", {"keep_card": None}))
+        if self.act4_used < 2 and len(self.hand) > 0:
+            for card in self.hand:
+                valid.append(("act4", {"discard_card": card}))
+        valid.append(("pass", {}))
+        return valid
+
+    def choose_action(self, all_players, deck):
+        valid_actions = self.get_valid_actions(all_players, deck)
+        if not valid_actions:
+            return "pass", {}
+
+        # Priority order: act4 (discard) > act1 > act2 > act3 > pass
+        priority = {"act4": 0, "act1": 1, "act2": 2, "act3": 3, "pass": 99}
+        # Sort by priority | 按优先级排序
+        valid_actions.sort(key=lambda x: priority[x[0]])
+        best_action_type, best_payload = valid_actions[0]
+        return best_action_type, best_payload
+
+# --------------------------
+# 游戏循环调用示例（你放在主pygame循环里）
+# --------------------------
+def computer_turn(computer_player: ComputerPlayer, all_players, deck):
+    #轮到电脑回合时调用
+    computer_player.reset_actions()
+    action_type, payload = computer_player.choose_action(all_players, deck)
+    # For act3: we need to draw two cards first and choose one to keep
+    if action_type == "act3":
+        c1 = deck.draw()
+        c2 = deck.draw()
+        # Greedy / random choice: for random AI just pick either
+        keep = random.choice([c1, c2])
+        payload["keep_card"] = keep
+    computer_player.execute_action(action_type, payload, all_players, deck)
